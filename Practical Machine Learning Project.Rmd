@@ -1,0 +1,129 @@
+
+---
+title: "Practical Machine Learning Project"
+output: html_document
+---
+
+**Introduction:** 
+
+Using devices such as Jawbone Up, Nike Fuel Band, and Fit bit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.
+
+One thing that people regularly do is quantify how much of a particular activity they do,but they rarely quantify how well they do it.
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm and dumbell of 6 participants and predict the manner on which they did the exercise.
+
+**Load the Data**
+```{r}
+library(caret)
+library(rattle)
+
+#Downloading data from web and replacing missing values with NA
+
+TrainData<- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+dim(TrainData)
+
+TestData <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+dim(TestData)
+
+str(TrainData)
+```
+
+The training data set is made of 19622 observations on 160 columns. We can notice that many columns have NA values or blank values on almost every observation. 
+
+We will remove columns with NA values, because they will not produce any information.
+
+**Clean the Data**
+```{r}
+TrainData <- TrainData[,(colSums(is.na(TrainData)) == 0)]
+dim(TrainData)
+
+TestData <- TestData[,(colSums(is.na(TestData)) == 0)]
+dim(TestData)
+```
+
+Note: We reduced the data to 60 variables.
+
+**Preprocess the data** 
+```{r}
+numericalsIdx   <- which(lapply(TrainData, class) %in% "numeric")
+
+preprocessModel <- preProcess(TrainData[,numericalsIdx],method=c('knnImpute', 'center', 'scale'))
+pre_TrainData   <- predict(preprocessModel, TrainData[,numericalsIdx])
+pre_TrainData$classe <- TrainData$classe
+pre_TestData    <- predict(preprocessModel,TestData[,numericalsIdx])
+```
+
+**Removing the non zero variables** 
+
+Removing the variables with values near zero, that means that they have not so much meaning in the predictions
+```{r}
+nzv <- nearZeroVar(pre_TrainData, saveMetrics=TRUE)
+pre_TrainData <- pre_TrainData[,nzv$nzv==FALSE]
+
+nzv <- nearZeroVar(pre_TestData, saveMetrics=TRUE)
+pre_TestData <- pre_TestData[,nzv$nzv==FALSE]
+```
+
+**Validation set** 
+
+```{r}
+# Here we create a partition of the traning data set 
+library(AppliedPredictiveModeling)
+
+set.seed(12345)
+inTrain <- createDataPartition(pre_TrainData$classe, p=0.75, list=FALSE)
+Training   <- pre_TrainData[inTrain,]
+Testing    <- pre_TrainData[-inTrain,]
+
+dim(Training)
+dim(Testing)
+```
+
+**Train Model** 
+
+In the following section, we will train a model using random forest. In order to limit the effects of overfitting, and improve the efficicency of the model, we will use the *cross-validation technique* of 5 folds.
+
+```{r}
+library(randomForest)
+
+trControl <- trainControl(method="cv", number=5)
+modrf   <- train(classe ~., method="rf", data=Training, trControl=trControl, allowParallel=TRUE, importance=TRUE)
+
+modrf
+plot(modrf, main ="Accuracy of Random forest model by number of predictors")
+
+```
+
+**Cross Validation Testing and Out-of-Sample Error Estimate**
+
+We will apply our training model on our testing database, to check its accuracy.
+
+Accuracy and Estimated out of sample error
+
+```{r}
+preValidRF <- predict(modrf, Testing)
+ConMat     <- confusionMatrix(Testing$classe, preValidRF)
+ConMat$table
+```
+
+We can notice that there are very few variables out of this model.
+
+```{r}
+accur <- postResample(Testing$classe, preValidRF)
+modAccuracy <- accur[[1]]
+modAccuracy
+```
+
+```{r}
+out_of_sample_error <- 1 - modAccuracy
+out_of_sample_error
+```
+
+The estimated accuracy of the model is 99.4% and the estimated out of sample error based on our filter model applied to the cross validation dataset is 0.6%
+
+**Application of this model on the 20 test cases provided**
+
+```{r}
+pred_final <- predict(modrf, pre_TestData)
+pred_final
+```
